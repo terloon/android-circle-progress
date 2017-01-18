@@ -1,9 +1,13 @@
 import android.animation.Animator;
 import android.animation.ValueAnimator;
+import android.app.Activity;
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.drawable.Drawable;
 import android.util.Log;
 import android.view.View;
 
@@ -55,6 +59,16 @@ public class CircleProgress extends View {
     private static final int DEFAULT_CIRCLE_COLOR = Color.WHITE;
 
     /**
+     * Value to use for clockwise rotation.
+     */
+    private static final int ROTATION_CLOCKWISE = 360;
+
+    /**
+     * Value to use for counter clockwise rotation.
+     */
+    private static final int ROTATION_COUNTER_CLOCKWISE = -360;
+
+    /**
      * Paint to use to draw the circle.
      */
     private Paint mMainPaint;
@@ -68,6 +82,16 @@ public class CircleProgress extends View {
      * Paint to use to draw the drop shadow.
      */
     private Paint mShadowPaint;
+
+    /**
+     * Paint for icon image.
+     */
+    private Paint mIconPaint;
+
+    /**
+     * Paint to use for next icon image to use.
+     */
+    private Paint mNextIconPaint;
 
     /**
      * Current border withd.
@@ -100,9 +124,27 @@ public class CircleProgress extends View {
     private float mStartAngle = START_TOP;
 
     /**
+     * The current progress rotation.
+     */
+    private float mRotation = ROTATION_CLOCKWISE;
+
+    /**
      * Runnable instance to invoke when the progress meter reaches completion.
      */
     private Runnable mOnComplete;
+
+    /**
+     * Icon image to display at the center of the view.
+     */
+    private Bitmap mIconImage;
+
+    /**
+     * The next icon image to display at the center. Will perform a transition between current and
+     * this new image.
+     */
+    private Bitmap mNextImage;
+
+    private float mFadeAlpha;
 
     /**
      * The value animator for the progress arc.
@@ -114,6 +156,7 @@ public class CircleProgress extends View {
 
         mMainPaint = new Paint();
         mMainPaint.setColor(DEFAULT_CIRCLE_COLOR);
+        mMainPaint.setAntiAlias(true);
 
         mArcPaint = new Paint();
         mArcPaint.setStyle(Paint.Style.STROKE);
@@ -124,6 +167,9 @@ public class CircleProgress extends View {
         mShadowPaint = new Paint();
         setLayerType(LAYER_TYPE_SOFTWARE, mShadowPaint);
         mShadowPaint.setShadowLayer(mShadowRadius, 0, 0, Color.argb(128, 0, 0, 0));
+
+        mIconPaint = new Paint();
+        mNextIconPaint = new Paint();
     }
 
     /**
@@ -146,10 +192,20 @@ public class CircleProgress extends View {
             getWidth() - delta, // right
             getHeight() - delta, // bottom
             mStartAngle, // start angle
-            360 * mProgress, // sweep
+            mRotation * mProgress, // sweep
             false, // use center
             mArcPaint // paint
         );
+
+        if (mIconImage != null) {
+            mIconPaint.setAlpha((int)(255 * (1 - mFadeAlpha)));
+            canvas.drawBitmap(mIconImage, (getWidth() - mIconImage.getWidth()) / 2, (getHeight() - mIconImage.getHeight()) / 2, mIconPaint);
+        }
+
+        if (mNextImage != null) {
+            mNextIconPaint.setAlpha((int)(255 * mFadeAlpha));
+            canvas.drawBitmap(mNextImage, (getWidth() - mNextImage.getWidth()) / 2, (getHeight() - mNextImage.getHeight()) / 2, mNextIconPaint);
+        }
     }
 
     /**
@@ -157,6 +213,7 @@ public class CircleProgress extends View {
      * @param progress The value to animate to.
      */
     public void animateProgress(float progress) {
+
         // Valid values for progress are only between 0 and 1
         if (progress < 0) {
             progress = 0;
@@ -173,48 +230,59 @@ public class CircleProgress extends View {
             return;
         }
 
-        if (mValueAnimator != null) {
-            mValueAnimator.cancel();
-            mValueAnimator = null;
-        }
-
-        mValueAnimator = new ValueAnimator().ofFloat(mToProgress, toProgress);
-        mValueAnimator.setDuration(mIncrementDuration);
-
-        mValueAnimator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+        Runnable runnable = new Runnable() {
             @Override
-            public void onAnimationUpdate(ValueAnimator animation) {
-                Float value = (Float)animation.getAnimatedValue();
-                mProgress = value;
-                invalidate();
-            }
-        });
-
-        mValueAnimator.addListener(new Animator.AnimatorListener() {
-            @Override
-            public void onAnimationStart(Animator animation) {
-
-            }
-
-            @Override
-            public void onAnimationEnd(Animator animation) {
-                mToProgress = toProgress;
-                if (mProgress >= 1 && mOnComplete != null) {
-                    mOnComplete.run();
+            public void run() {
+                if (mValueAnimator != null) {
+                    mValueAnimator.cancel();
+                    mValueAnimator = null;
                 }
-            }
 
-            @Override
-            public void onAnimationCancel(Animator animation) {
-                mToProgress = toProgress;
-            }
+                mValueAnimator = new ValueAnimator().ofFloat(mToProgress, toProgress);
+                mValueAnimator.setDuration(mIncrementDuration);
 
-            @Override
-            public void onAnimationRepeat(Animator animation) {
+                mValueAnimator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+                    @Override
+                    public void onAnimationUpdate(ValueAnimator animation) {
+                        Float value = (Float)animation.getAnimatedValue();
+                        mProgress = value;
+                        invalidate();
+                    }
+                });
 
+                mValueAnimator.addListener(new Animator.AnimatorListener() {
+                    @Override
+                    public void onAnimationStart(Animator animation) {
+
+                    }
+
+                    @Override
+                    public void onAnimationEnd(Animator animation) {
+                        mToProgress = toProgress;
+                        if (mProgress >= 1 && mOnComplete != null) {
+                            mOnComplete.run();
+                        }
+                    }
+
+                    @Override
+                    public void onAnimationCancel(Animator animation) {
+                        mToProgress = toProgress;
+                    }
+
+                    @Override
+                    public void onAnimationRepeat(Animator animation) {
+
+                    }
+                });
+                mValueAnimator.start();
             }
-        });
-        mValueAnimator.start();
+        };
+
+        Context context = getContext();
+        if (context instanceof Activity) {
+            Activity activity = (Activity)context;
+            activity.runOnUiThread(runnable);
+        }
     }
 
     /**
@@ -273,5 +341,68 @@ public class CircleProgress extends View {
         mToProgress = 0;
         mProgress = 0;
         invalidate();
+    }
+
+    /**
+     * Set the resource id of the icon to use in the middle of the circle view.
+     * @param resourceId The resource id of the drawable.
+     */
+    public void setIcon(int resourceId) {
+        Bitmap bitmap = BitmapFactory.decodeResource(getContext().getResources(), resourceId);
+        mIconImage = bitmap;
+    }
+
+    /**
+     * Set whether the rotation of the progress is clockwise or counter clockwise.
+     * @param clockwise
+     */
+    public void setRotationClockwise(boolean clockwise) {
+        mRotation = clockwise ? ROTATION_CLOCKWISE : ROTATION_COUNTER_CLOCKWISE;
+    }
+
+    /**
+     * Animate to the next icon to use. This is centered in the middle of the circle view.
+     * @param resourceId The resource id of the drawable to use.
+     */
+    public void animateNextImage(int resourceId) {
+        Bitmap bitmap = BitmapFactory.decodeResource(getContext().getResources(), resourceId);
+        mNextImage = bitmap;
+        mFadeAlpha = 0;
+
+        ValueAnimator anim = new ValueAnimator().ofFloat(0, 1);
+        anim.setDuration(500);
+        anim.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+            @Override
+            public void onAnimationUpdate(ValueAnimator animation) {
+                Float value = (Float)animation.getAnimatedValue();
+                mFadeAlpha = value;
+                invalidate();
+            }
+        });
+        anim.addListener(new Animator.AnimatorListener() {
+            @Override
+            public void onAnimationStart(Animator animation) {
+
+            }
+
+            @Override
+            public void onAnimationEnd(Animator animation) {
+                mIconImage = mNextImage;
+                mNextImage = null;
+                mFadeAlpha = 0;
+                Log.d("section", "switch done");
+            }
+
+            @Override
+            public void onAnimationCancel(Animator animation) {
+
+            }
+
+            @Override
+            public void onAnimationRepeat(Animator animation) {
+
+            }
+        });
+        anim.start();
     }
 }
