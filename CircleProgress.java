@@ -366,6 +366,7 @@ public class CircleProgress extends View {
      */
     public void animateNextImage(int resourceId) {
         Bitmap bitmap = BitmapFactory.decodeResource(getContext().getResources(), resourceId);
+
         mNextImage = bitmap;
         mFadeAlpha = 0;
 
@@ -379,6 +380,7 @@ public class CircleProgress extends View {
                 invalidate();
             }
         });
+
         anim.addListener(new Animator.AnimatorListener() {
             @Override
             public void onAnimationStart(Animator animation) {
@@ -390,7 +392,7 @@ public class CircleProgress extends View {
                 mIconImage = mNextImage;
                 mNextImage = null;
                 mFadeAlpha = 0;
-                Log.d("section", "switch done");
+                mIconPaint.setAlpha(255);
             }
 
             @Override
